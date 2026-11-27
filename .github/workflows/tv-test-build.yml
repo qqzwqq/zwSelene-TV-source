@@ -1,0 +1,56 @@
+name: TV 版测试构建（不发布）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv-test-build
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    name: 测试编译并保存 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 运行单元测试并构建测试 APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean testReleaseUnitTest assembleRelease
+
+      - name: 检查 APK 产物
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -lt 2 ]; then
+            echo "::error::没有生成预期的 arm64-v8a 与 armeabi-v7a APK"
+            find app/build/outputs/apk -maxdepth 4 -type f -print || true
+            exit 1
+          fi
+          printf '测试 APK：\n'
+          printf '%s\n' "${apks[@]}"
+
+      - name: 上传测试 APK（不创建 Release）
+        uses: actions/upload-artifact@v4
+        with:
+          name: zwSelene-TV-test-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
