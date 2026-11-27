@@ -4,6 +4,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -210,11 +213,14 @@ private fun TabButton(
     onBackPressed: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    // 鼠标悬停只提供视觉反馈，不请求焦点，避免干扰遥控器导航。
+    val hoverInteraction = remember { MutableInteractionSource() }
+    val isHovered by hoverInteraction.collectIsHoveredAsState()
     
     // 聚焦时的放大动画，使用弹簧效果 (friction: 8, tension: 100)
     // dampingRatio ≈ friction/2√(mass*stiffness), stiffness ≈ tension
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1f,
+        targetValue = if (isFocused || isHovered) 1.05f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,  // 0.5f，更接近 0.4
             stiffness = Spring.StiffnessLow                   // 200f，或者用 100f
@@ -224,16 +230,17 @@ private fun TabButton(
     
     // 背景颜色和内容颜色
     val backgroundColor = when {
-        isFocused -> Color.White // 聚焦：纯白色
+        isFocused || isHovered -> Color.White // 遥控器聚焦或鼠标悬停：纯白色
         isSelected && !hasAnyFocus -> Color.White.copy(alpha = 0.2f) // 选中且整个 TabSwitcher 无焦点：半透明白色
         else -> Color.Transparent // 默认：透明
     }
     
-    val contentColor = if (isFocused) Color(0xFF0a0a0a) else Color.White
+    val contentColor = if (isFocused || isHovered) Color(0xFF0a0a0a) else Color.White
     
     Surface(
         onClick = onTabClick,
         modifier = Modifier
+            .hoverable(interactionSource = hoverInteraction)
             .height(31.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { focusState ->
