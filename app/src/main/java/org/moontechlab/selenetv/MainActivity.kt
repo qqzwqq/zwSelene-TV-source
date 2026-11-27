@@ -94,91 +94,121 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 将鼠标主键点击转换为触摸事件交给 Compose 根视图分发。
+     * 将鼠标左键手势转换成真正的触摸指针事件交给 Compose。
      *
-     * Android TV 的部分 Compose TV 控件只响应遥控器确认键；某些桌面/模拟器环境
-     * 虽然显示鼠标指针并接收滚轮，却没有把鼠标主键点击交给控件的 clickable。
-     * 在 Activity 最外层统一转换，登录页、导航栏、视频卡片、设置和弹窗都能复用
-     * 原有触摸点击语义，不需要逐个改动页面，也不会改变遥控器按键行为。
+     * 关键点：仅 setSource(SOURCE_TOUCHSCREEN) 不会改变 MotionEvent 内部的
+     * toolType，事件仍可能被 Compose 识别为鼠标指针。这里重新构造 PointerProperties，
+     * 将 toolType 明确设为 TOOL_TYPE_FINGER，再以 SOURCE_TOUCHSCREEN 分发。
+     * 鼠标悬停/移动（未按下）、滚轮和其它设备事件仍交给 Android 原生分发。
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-            val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
-            val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            return super.dispatchTouchEvent(event)
+        }
 
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (secondary) {
+        val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+        val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                // 右键不转换成触摸，直接作为返回操作。
+                if (secondary) {
+                    mouseSecondaryPressed = true
+                    onBackPressedDispatcher.onBackPressed()
+                    return true
+                }
+                mousePrimaryPressed = true
+                dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
+                return true
+            }
+
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                if (secondary) {
+                    if (!mouseSecondaryPressed) {
                         mouseSecondaryPressed = true
                         onBackPressedDispatcher.onBackPressed()
-                        return true
                     }
-                    if (primary) {
-                        mousePrimaryPressed = true
-                        return dispatchMouseAsTouch(event)
-                    }
+                    return true
                 }
-                MotionEvent.ACTION_BUTTON_PRESS -> {
-                    if (secondary) {
-                        if (!mouseSecondaryPressed) {
-                            mouseSecondaryPressed = true
-                            onBackPressedDispatcher.onBackPressed()
-                        }
-                        return true
-                    }
-                    if (primary) {
-                        if (!mousePrimaryPressed) {
-                            mousePrimaryPressed = true
-                            val down = MotionEvent.obtain(event)
-                            return try {
-                                down.action = MotionEvent.ACTION_DOWN
-                                dispatchMouseAsTouch(down)
-                            } finally {
-                                down.recycle()
-                            }
-                        }
-                        return true
-                    }
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (mousePrimaryPressed) return dispatchMouseAsTouch(event)
-                }
-                MotionEvent.ACTION_BUTTON_RELEASE -> {
-                    if (mouseSecondaryPressed && !secondary) {
-                        mouseSecondaryPressed = false
-                        return true
-                    }
-                    if (mousePrimaryPressed && !primary) {
-                        mousePrimaryPressed = false
-                        val up = MotionEvent.obtain(event)
-                        return try {
-                            up.action = MotionEvent.ACTION_UP
-                            dispatchMouseAsTouch(up)
-                        } finally {
-                            up.recycle()
-                        }
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (mouseSecondaryPressed) {
-                        mouseSecondaryPressed = false
-                        return true
-                    }
-                    if (mousePrimaryPressed) {
-                        mousePrimaryPressed = false
-                        return dispatchMouseAsTouch(event)
-                    }
+                if (primary && !mousePrimaryPressed) {
+                    mousePrimaryPressed = true
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
+                    return true
                 }
             }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (mousePrimaryPressed) {
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_MOVE)
+                    return true
+                }
+            }
+
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                if (mouseSecondaryPressed && !secondary) {
+                    mouseSecondaryPressed = false
+                    return true
+                }
+                if (mousePrimaryPressed && !primary) {
+                    mousePrimaryPressed = false
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
+                    return true
+                }
+            }
+
+            MotionEvent.ACTION_UP -> {
+                if (mouseSecondaryPressed) {
+                    mouseSecondaryPressed = false
+                    return true
+                }
+                if (mousePrimaryPressed) {
+                    mousePrimaryPressed = false
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
+                    return true
+                }
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                if (mousePrimaryPressed) {
+                    mousePrimaryPressed = false
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_CANCEL)
+                    return true
+                }
+                mouseSecondaryPressed = false
+            }
         }
-        // 悬停、指针移动和其他设备事件仍走系统原始分发。
+
+        // 悬停、滚轮和未处理的鼠标事件保留系统原生行为。
         return super.dispatchTouchEvent(event)
     }
 
-    private fun dispatchMouseAsTouch(event: MotionEvent): Boolean {
-        val touchEvent = MotionEvent.obtain(event)
-        return try {
-            touchEvent.setSource(InputDevice.SOURCE_TOUCHSCREEN)
+    private fun dispatchMouseAsTouch(event: MotionEvent, action: Int) {
+        if (event.pointerCount <= 0) return
+
+        val properties = MotionEvent.PointerProperties().also {
+            event.getPointerProperties(0, it)
+            it.toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+        val coordinates = MotionEvent.PointerCoords().also {
+            event.getPointerCoords(0, it)
+        }
+        val touchEvent = MotionEvent.obtain(
+            event.downTime,
+            event.eventTime,
+            action,
+            1,
+            arrayOf(properties),
+            arrayOf(coordinates),
+            event.metaState,
+            0,
+            event.xPrecision,
+            event.yPrecision,
+            event.deviceId,
+            event.edgeFlags,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            event.flags
+        )
+        try {
             super.dispatchTouchEvent(touchEvent)
         } finally {
             touchEvent.recycle()
