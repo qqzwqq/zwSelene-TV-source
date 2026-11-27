@@ -1,0 +1,111 @@
+name: TV 版构建与 Release 发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release 标签，必须与 app/build.gradle.kts 中的 versionName 一致，例如 v1.4.6"
+        required: true
+        default: "v1.4.6"
+        type: string
+      release_name:
+        description: "Release 标题"
+        required: true
+        default: "我是挖洋镐的 TV"
+        type: string
+      release_body:
+        description: "更新说明"
+        required: false
+        default: "TV 版更新。"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tv-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: 构建并发布 TV APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 校验版本并从 Secrets 注入签名密钥
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TV_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TV_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TV_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          APP_VERSION="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)"
+          if [ -z "$APP_VERSION" ]; then
+            echo "::error::无法从 app/build.gradle.kts 读取 versionName"
+            exit 1
+          fi
+          NORMALIZED_TAG="${RELEASE_TAG#v}"
+          if [ "$NORMALIZED_TAG" != "$APP_VERSION" ]; then
+            echo "::error::Release 标签 $RELEASE_TAG 与应用 versionName $APP_VERSION 不一致。请先更新 versionName，再运行发布。"
+            exit 1
+          fi
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::请设置 Actions secret TV_KEYSTORE_BASE64"; exit 1; }
+          [ -n "$KEYSTORE_PASSWORD" ] || { echo "::error::请设置 Actions secret TV_KEYSTORE_PASSWORD"; exit 1; }
+          [ -n "$KEY_ALIAS" ] || { echo "::error::请设置 Actions secret TV_KEY_ALIAS"; exit 1; }
+          [ -n "$KEY_PASSWORD" ] || { echo "::error::请设置 Actions secret TV_KEY_PASSWORD"; exit 1; }
+
+          KEYSTORE_PATH="$RUNNER_TEMP/tv-release-key.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+          {
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > key.properties
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 运行测试并构建 Release APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean testReleaseUnitTest assembleRelease
+
+      - name: 检查 APK 产物
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          if [ "${#apks[@]}" -lt 2 ]; then
+            echo "::error::没有生成预期的 arm64-v8a 与 armeabi-v7a 分包 APK"
+            find app/build/outputs/apk -maxdepth 4 -type f -print || true
+            exit 1
+          fi
+          printf '生成的 APK：\n'
+          printf '%s\n' "${apks[@]}"
+
+      - name: 发布到 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_name }} ${{ inputs.release_tag }}
+          body: ${{ inputs.release_body }}
+          files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
