@@ -1,5 +1,7 @@
 package org.moontechlab.selenetv.ui
 
+import android.util.Log
+
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -177,7 +179,10 @@ fun TabSwitcher(
                     onFocusChanged = { isFocused ->
                         focusedTabId = if (isFocused) tab.id else null
                     },
-                    onTabClick = { onTabSelected(tab.id) },
+                    onTabClick = {
+                        Log.d("TabSwitcher", "Tab click callback: ${tab.id}")
+                        onTabSelected(tab.id)
+                    },
                     onNavigateDown = {
                         onNavigateDown(selectedTabId)
                     },
@@ -245,6 +250,9 @@ private fun TabButton(
             .focusRequester(focusRequester)
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
+                if (focusState.isFocused) {
+                    Log.d("TabSwitcher", "Tab focused: ${tab.id}")
+                }
                 onFocusChanged(focusState.isFocused)
             }
             .graphicsLayer {

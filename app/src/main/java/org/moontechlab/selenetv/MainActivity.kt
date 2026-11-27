@@ -102,6 +102,10 @@ class MainActivity : ComponentActivity() {
      * 鼠标悬停/移动（未按下）、滚轮和其它设备事件仍交给 Android 原生分发。
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) || event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+            val toolType = if (event.pointerCount > 0) event.getToolType(0) else -1
+            Log.d(TAG, "Pointer input: action=${event.actionMasked}, source=0x${event.source.toString(16)}, buttons=0x${event.buttonState.toString(16)}, toolType=$toolType, pointers=${event.pointerCount}, x=${event.x}, y=${event.y}")
+        }
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             return super.dispatchTouchEvent(event)
         }
@@ -209,7 +213,8 @@ class MainActivity : ComponentActivity() {
             event.flags
         )
         try {
-            super.dispatchTouchEvent(touchEvent)
+            val handled = super.dispatchTouchEvent(touchEvent)
+            Log.d(TAG, "Synthetic touch dispatched: action=$action, x=${touchEvent.x}, y=${touchEvent.y}, handled=$handled")
         } finally {
             touchEvent.recycle()
         }
@@ -226,6 +231,12 @@ class MainActivity : ComponentActivity() {
     // 从根上避免「触发 + 补发」的双分发。BackHandler 仍由 onBackPressedDispatcher 正常调度；
     // IME 弹出时 BACK 由输入法窗口先行消费、根本不会进到这里，故不影响收起键盘。
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER ||
+            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        ) {
+            Log.d(TAG, "Confirm key: code=${event.keyCode}, action=${event.action}, repeat=${event.repeatCount}")
+        }
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
                 onBackPressedDispatcher.onBackPressed()
