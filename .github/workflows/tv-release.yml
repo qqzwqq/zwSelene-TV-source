@@ -35,8 +35,9 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: 校验 Release 版本与签名配置
+      - name: 校验版本并从 Secrets 注入签名密钥
         env:
+          KEYSTORE_BASE64: ${{ secrets.TV_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.TV_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.TV_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.TV_KEY_PASSWORD }}
@@ -53,12 +54,18 @@ jobs:
             echo "::error::Release 标签 $RELEASE_TAG 与应用 versionName $APP_VERSION 不一致。请先更新 versionName，再运行发布。"
             exit 1
           fi
-          test -f key.jks || { echo "::error::仓库根目录缺少 key.jks"; exit 1; }
-          [ -n "$KEYSTORE_PASSWORD" ] || { echo "::error::请在仓库 Actions secrets 中设置 TV_KEYSTORE_PASSWORD"; exit 1; }
-          [ -n "$KEY_ALIAS" ] || { echo "::error::请在仓库 Actions secrets 中设置 TV_KEY_ALIAS"; exit 1; }
-          [ -n "$KEY_PASSWORD" ] || { echo "::error::请在仓库 Actions secrets 中设置 TV_KEY_PASSWORD"; exit 1; }
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::请设置 Actions secret TV_KEYSTORE_BASE64"; exit 1; }
+          [ -n "$KEYSTORE_PASSWORD" ] || { echo "::error::请设置 Actions secret TV_KEYSTORE_PASSWORD"; exit 1; }
+          [ -n "$KEY_ALIAS" ] || { echo "::error::请设置 Actions secret TV_KEY_ALIAS"; exit 1; }
+          [ -n "$KEY_PASSWORD" ] || { echo "::error::请设置 Actions secret TV_KEY_PASSWORD"; exit 1; }
+
+          KEYSTORE_PATH="$RUNNER_TEMP/tv-release-key.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
           {
-            printf 'storeFile=key.jks\n'
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
             printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
             printf 'keyAlias=%s\n' "$KEY_ALIAS"
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
