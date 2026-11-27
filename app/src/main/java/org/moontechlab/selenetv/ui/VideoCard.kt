@@ -2,6 +2,9 @@ package org.moontechlab.selenetv.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -139,6 +142,9 @@ fun VideoCard(
     val innerCornerRadius = (cornerRadius.value * 0.67f).dp  // 聚焦时内部圆角
     val titleFontSize = style.titleFontSize.sp
     var isFocused by remember { mutableStateOf(false) }
+    // 鼠标悬停增加与遥控器焦点一致的高亮，但不改变实际焦点归属。
+    val hoverInteraction = remember { MutableInteractionSource() }
+    val isHovered by hoverInteraction.collectIsHoveredAsState()
     var titleWidth by remember { mutableStateOf(0) }
     var containerWidth by remember { mutableStateOf(0) }
     var isMeasured by remember { mutableStateOf(false) }
@@ -157,7 +163,7 @@ fun VideoCard(
     
     // 聚焦时的放大动画，使用弹簧效果
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.1f else 1f,
+        targetValue = if (isFocused || isHovered) 1.1f else 1f,
         animationSpec = spring(
             dampingRatio = 0.6f,  // 较高阻尼，减少回弹
             stiffness = 400f     // 较高刚度，更快响应
@@ -238,6 +244,7 @@ fun VideoCard(
         },
         onLongClick = onLongClick?.let { { it() } },
         modifier = modifier
+            .hoverable(interactionSource = hoverInteraction)
             .then(
                 if (returnFocus != null && returnFocus.matches(returnKey))
                     Modifier.focusRequester(returnFocus.requester)
@@ -279,7 +286,7 @@ fun VideoCard(
                         .clip(RoundedCornerShape(cornerRadius))
                         .background(Color(0xFF2A2A2A))
                         .then(
-                            if (isFocused) {
+                            if (isFocused || isHovered) {
                                 Modifier.border(
                                     width = style.borderWidth,
                                     color = Color.White,
@@ -293,8 +300,8 @@ fun VideoCard(
                         contentDescription = videoInfo.title,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(if (isFocused) 2.dp else 0.dp)
-                            .clip(RoundedCornerShape(if (isFocused) innerCornerRadius else cornerRadius)),
+                            .padding(if (isFocused || isHovered) 2.dp else 0.dp)
+                            .clip(RoundedCornerShape(if (isFocused || isHovered) innerCornerRadius else cornerRadius)),
                     )
                 }
 
