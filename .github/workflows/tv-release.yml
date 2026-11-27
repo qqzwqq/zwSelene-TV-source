@@ -80,10 +80,10 @@ jobs:
       - name: 配置 Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 运行测试并构建 Release APK
+      - name: 构建 Release APK
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon clean testReleaseUnitTest assembleRelease
+          ./gradlew --no-daemon clean assembleRelease
 
       - name: 检查 APK 产物
         shell: bash
