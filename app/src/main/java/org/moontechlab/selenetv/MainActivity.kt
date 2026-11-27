@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,6 +41,8 @@ class MainActivity : ComponentActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activityScope = CoroutineScope(Dispatchers.Main)
+    private var mousePrimaryPressed = false
+    private var mouseSecondaryPressed = false
 
     @SuppressLint("GestureBackNavigation", "RestrictedApi")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +90,93 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AppNavHost()
+        }
+    }
+
+    /**
+     * 将鼠标主键点击转换为触摸事件交给 Compose 根视图分发。
+     *
+     * Android TV 的部分 Compose TV 控件只响应遥控器确认键；某些桌面/模拟器环境
+     * 虽然显示鼠标指针并接收滚轮，却没有把鼠标主键点击交给控件的 clickable。
+     * 在 Activity 最外层统一转换，登录页、导航栏、视频卡片、设置和弹窗都能复用
+     * 原有触摸点击语义，不需要逐个改动页面，也不会改变遥控器按键行为。
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+            val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (secondary) {
+                        mouseSecondaryPressed = true
+                        onBackPressedDispatcher.onBackPressed()
+                        return true
+                    }
+                    if (primary) {
+                        mousePrimaryPressed = true
+                        return dispatchMouseAsTouch(event)
+                    }
+                }
+                MotionEvent.ACTION_BUTTON_PRESS -> {
+                    if (secondary && !mouseSecondaryPressed) {
+                        mouseSecondaryPressed = true
+                        onBackPressedDispatcher.onBackPressed()
+                        return true
+                    }
+                    if (primary && !mousePrimaryPressed) {
+                        mousePrimaryPressed = true
+                        val down = MotionEvent.obtain(event)
+                        return try {
+                            down.action = MotionEvent.ACTION_DOWN
+                            dispatchMouseAsTouch(down)
+                        } finally {
+                            down.recycle()
+                        }
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (mousePrimaryPressed) return dispatchMouseAsTouch(event)
+                }
+                MotionEvent.ACTION_BUTTON_RELEASE -> {
+                    if (mouseSecondaryPressed && !secondary) {
+                        mouseSecondaryPressed = false
+                        return true
+                    }
+                    if (mousePrimaryPressed && !primary) {
+                        mousePrimaryPressed = false
+                        val up = MotionEvent.obtain(event)
+                        return try {
+                            up.action = MotionEvent.ACTION_UP
+                            dispatchMouseAsTouch(up)
+                        } finally {
+                            up.recycle()
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (mouseSecondaryPressed) {
+                        mouseSecondaryPressed = false
+                        return true
+                    }
+                    if (mousePrimaryPressed) {
+                        mousePrimaryPressed = false
+                        return dispatchMouseAsTouch(event)
+                    }
+                }
+            }
+        }
+        // 悬停、指针移动和其他设备事件仍走系统原始分发。
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun dispatchMouseAsTouch(event: MotionEvent): Boolean {
+        val touchEvent = MotionEvent.obtain(event)
+        return try {
+            touchEvent.setSource(InputDevice.SOURCE_TOUCHSCREEN)
+            super.dispatchTouchEvent(touchEvent)
+        } finally {
+            touchEvent.recycle()
         }
     }
 
