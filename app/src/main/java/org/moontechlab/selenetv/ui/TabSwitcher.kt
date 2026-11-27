@@ -122,6 +122,13 @@ fun TabSwitcher(
             .padding(top = 16.dp, bottom = 8.dp, start = 24.dp, end = 24.dp),
         contentAlignment = Alignment.Center
     ) {
+        Text(
+            text = "我是挖洋镐的",
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
         Row(
             modifier = Modifier
                 .shadow(
