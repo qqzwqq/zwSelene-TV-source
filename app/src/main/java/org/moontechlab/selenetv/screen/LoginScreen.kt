@@ -739,7 +739,7 @@ private fun VersionColophon(
                 onActivate = onSecretActivate
             )
             Text(
-                text = "SELENE TV",
+                text = "我是挖洋镐的",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 2.sp,
