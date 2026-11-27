@@ -27,8 +27,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -485,10 +483,6 @@ private fun LoginTextField(
             onValueChange = onValueChange,
             modifier = Modifier
                 .fillMaxWidth()
-                // 显式响应鼠标/触摸点击并请求输入焦点；保留 BasicTextField 原生键盘与遥控器输入行为。
-                .pointerInput(focusRequester) {
-                    detectTapGestures(onTap = { focusRequester.requestFocus() })
-                }
                 .focusRequester(focusRequester)
                 .focusProperties {
                     // 指定上下导航的目标
@@ -558,10 +552,6 @@ private fun LoginButton(
         onClick = { if (enabled) onClick() },
         modifier = modifier
             .fillMaxWidth()
-            // TV Surface 继续处理遥控器 OK/焦点；此手势补充鼠标与触摸点击。
-            .pointerInput(enabled, onClick) {
-                detectTapGestures(onTap = { if (enabled) onClick() })
-            }
             .focusProperties {
                 if (upFocusRequester != null) up = upFocusRequester
                 if (downFocusRequester != null) down = downFocusRequester
