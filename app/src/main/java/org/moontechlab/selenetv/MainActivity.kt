@@ -119,20 +119,25 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 MotionEvent.ACTION_BUTTON_PRESS -> {
-                    if (secondary && !mouseSecondaryPressed) {
-                        mouseSecondaryPressed = true
-                        onBackPressedDispatcher.onBackPressed()
+                    if (secondary) {
+                        if (!mouseSecondaryPressed) {
+                            mouseSecondaryPressed = true
+                            onBackPressedDispatcher.onBackPressed()
+                        }
                         return true
                     }
-                    if (primary && !mousePrimaryPressed) {
-                        mousePrimaryPressed = true
-                        val down = MotionEvent.obtain(event)
-                        return try {
-                            down.action = MotionEvent.ACTION_DOWN
-                            dispatchMouseAsTouch(down)
-                        } finally {
-                            down.recycle()
+                    if (primary) {
+                        if (!mousePrimaryPressed) {
+                            mousePrimaryPressed = true
+                            val down = MotionEvent.obtain(event)
+                            return try {
+                                down.action = MotionEvent.ACTION_DOWN
+                                dispatchMouseAsTouch(down)
+                            } finally {
+                                down.recycle()
+                            }
                         }
+                        return true
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
