@@ -252,32 +252,39 @@ private fun TabButton(
                 scaleY = scale
             }
             .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
-                    when (keyEvent.key) {
-                        // 下方向键：移动到内容区域（切换期间锁定）
-                        Key.DirectionDown, Key.NavigateNext -> {
-                            if (!isSwitching) {
-                                onNavigateDown()
-                            }
-                            true
+                when (keyEvent.key) {
+                    // 某些 TV/模拟器不会把确认键稳定地交给 TV Surface 的内部 clickable，
+                    // 因此在当前已聚焦的标签上明确处理确认键。KeyUp 也消费，避免重复触发。
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        if (keyEvent.type == KeyEventType.KeyDown) {
+                            onTabClick()
                         }
-                        // 上方向键：边界陷阱，不允许向上移出（切换期间也锁定）
-                        Key.DirectionUp, Key.NavigatePrevious -> {
-                            true // 消费事件，阻止向上移动
-                        }
-                        // 左右方向键：边界陷阱（只在边界时消费事件）
-                        Key.DirectionLeft -> {
-                            isFirstTab // 如果是第一个标签，消费事件阻止移出；否则允许正常导航
-                        }
-                        Key.DirectionRight -> {
-                            isLastTab // 如果是最后一个标签，消费事件阻止移出；否则允许正常导航
-                        }
-                        // 返回键由 BackHandler 处理，这里不消费
-                        Key.Back, Key.Escape -> false
-                        else -> false
+                        true
                     }
-                } else {
-                    false
+
+                    else -> {
+                        if (keyEvent.type == KeyEventType.KeyDown) {
+                            when (keyEvent.key) {
+                                // 下方向键：移动到内容区域（切换期间锁定）
+                                Key.DirectionDown, Key.NavigateNext -> {
+                                    if (!isSwitching) {
+                                        onNavigateDown()
+                                    }
+                                    true
+                                }
+                                // 上方向键：边界陷阱，不允许向上移出（切换期间也锁定）
+                                Key.DirectionUp, Key.NavigatePrevious -> true
+                                // 左右方向键：边界陷阱（只在边界时消费事件）
+                                Key.DirectionLeft -> isFirstTab
+                                Key.DirectionRight -> isLastTab
+                                // 返回键由 BackHandler 处理，这里不消费
+                                Key.Back, Key.Escape -> false
+                                else -> false
+                            }
+                        } else {
+                            false
+                        }
+                    }
                 }
             },
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
