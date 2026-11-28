@@ -105,7 +105,6 @@ class MainActivity : ComponentActivity() {
         }
 
         val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
-        val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
