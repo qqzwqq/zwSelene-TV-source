@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity() {
                     dispatchMouseAsTouch(event, MotionEvent.ACTION_CANCEL)
                 }
                 mouseSecondaryPressed = false
+                return true
             }
         }
 
