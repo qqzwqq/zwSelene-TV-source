@@ -43,9 +43,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.graphics.BitmapFactory
+import android.view.InputDevice
+import android.view.MotionEvent
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import org.moontechlab.selenetv.server.RemoteControlServer
 import org.moontechlab.selenetv.service.AppDataService
 import org.moontechlab.selenetv.service.AuthHelper
@@ -541,6 +544,7 @@ private fun LoginButton(
     leftFocusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    var mousePressed by remember { mutableStateOf(false) }
 
     val textColor = when {
         !enabled -> TextGray
@@ -552,6 +556,40 @@ private fun LoginButton(
         onClick = { if (enabled) onClick() },
         modifier = modifier
             .fillMaxWidth()
+            // 兼容少数 TV/模拟器直接把鼠标按键事件交给 Compose 的情况。
+            // MainActivity 已转换的触摸事件不会进入此分支，因此不会重复触发。
+            .pointerInteropFilter { event ->
+                if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+                    false
+                } else {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            mousePressed = true
+                            true
+                        }
+                        MotionEvent.ACTION_BUTTON_PRESS -> {
+                            if (event.actionButton == MotionEvent.BUTTON_PRIMARY) {
+                                mousePressed = true
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE -> {
+                            val wasPressed = mousePressed
+                            mousePressed = false
+                            if (wasPressed && enabled) onClick()
+                            wasPressed
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            mousePressed = false
+                            true
+                        }
+                        MotionEvent.ACTION_MOVE -> mousePressed
+                        else -> false
+                    }
+                }
+            }
             .focusProperties {
                 if (upFocusRequester != null) up = upFocusRequester
                 if (downFocusRequester != null) down = downFocusRequester
