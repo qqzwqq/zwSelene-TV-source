@@ -41,7 +41,6 @@ class MainActivity : ComponentActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activityScope = CoroutineScope(Dispatchers.Main)
-    private var mousePrimaryPressed = false
     private var mouseSecondaryPressed = false
 
     @SuppressLint("GestureBackNavigation", "RestrictedApi")
@@ -94,35 +93,21 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 将鼠标左键手势转换成真正的触摸指针事件交给 Compose。
+     * 保留 Android/Compose 原生鼠标分发。
      *
-     * 关键点：仅 setSource(SOURCE_TOUCHSCREEN) 不会改变 MotionEvent 内部的
-     * toolType，事件仍可能被 Compose 识别为鼠标指针。这里重新构造 PointerProperties，
-     * 将 toolType 明确设为 TOOL_TYPE_FINGER，再以 SOURCE_TOUCHSCREEN 分发。
-     * 鼠标悬停/移动（未按下）、滚轮和其它设备事件仍交给 Android 原生分发。
+     * 之前将鼠标左键重新构造成触摸事件，但在实际 TV/WSA 环境中没有解决点击问题。
+     * Compose 原生 clickable/TV Surface 能处理鼠标、触摸、悬停及键盘交互，因此左键、
+     * 移动、滚轮等事件直接交给系统分发；仅保留鼠标右键作为返回键的兼容处理。
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             return super.dispatchTouchEvent(event)
         }
 
-        val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
         val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // 右键不转换成触摸，直接作为返回操作。
-                if (secondary) {
-                    mouseSecondaryPressed = true
-                    onBackPressedDispatcher.onBackPressed()
-                    return true
-                }
-                mousePrimaryPressed = true
-                dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
-                return true
-            }
-
-            MotionEvent.ACTION_BUTTON_PRESS -> {
                 if (secondary) {
                     if (!mouseSecondaryPressed) {
                         mouseSecondaryPressed = true
@@ -130,16 +115,12 @@ class MainActivity : ComponentActivity() {
                     }
                     return true
                 }
-                if (primary && !mousePrimaryPressed) {
-                    mousePrimaryPressed = true
-                    dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
-                    return true
-                }
             }
 
-            MotionEvent.ACTION_MOVE -> {
-                if (mousePrimaryPressed) {
-                    dispatchMouseAsTouch(event, MotionEvent.ACTION_MOVE)
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                if (secondary && !mouseSecondaryPressed) {
+                    mouseSecondaryPressed = true
+                    onBackPressedDispatcher.onBackPressed()
                     return true
                 }
             }
@@ -149,11 +130,6 @@ class MainActivity : ComponentActivity() {
                     mouseSecondaryPressed = false
                     return true
                 }
-                if (mousePrimaryPressed && !primary) {
-                    mousePrimaryPressed = false
-                    dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
-                    return true
-                }
             }
 
             MotionEvent.ACTION_UP -> {
@@ -161,58 +137,15 @@ class MainActivity : ComponentActivity() {
                     mouseSecondaryPressed = false
                     return true
                 }
-                if (mousePrimaryPressed) {
-                    mousePrimaryPressed = false
-                    dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
-                    return true
-                }
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                if (mousePrimaryPressed) {
-                    mousePrimaryPressed = false
-                    dispatchMouseAsTouch(event, MotionEvent.ACTION_CANCEL)
-                    return true
-                }
                 mouseSecondaryPressed = false
             }
         }
 
-        // 悬停、滚轮和未处理的鼠标事件保留系统原生行为。
+        // 鼠标左键、移动、悬停和滚轮全部由 Android 原生分发给 Compose。
         return super.dispatchTouchEvent(event)
-    }
-
-    private fun dispatchMouseAsTouch(event: MotionEvent, action: Int) {
-        if (event.pointerCount <= 0) return
-
-        val properties = MotionEvent.PointerProperties().also {
-            event.getPointerProperties(0, it)
-            it.toolType = MotionEvent.TOOL_TYPE_FINGER
-        }
-        val coordinates = MotionEvent.PointerCoords().also {
-            event.getPointerCoords(0, it)
-        }
-        val touchEvent = MotionEvent.obtain(
-            event.downTime,
-            event.eventTime,
-            action,
-            1,
-            arrayOf(properties),
-            arrayOf(coordinates),
-            event.metaState,
-            0,
-            event.xPrecision,
-            event.yPrecision,
-            event.deviceId,
-            event.edgeFlags,
-            InputDevice.SOURCE_TOUCHSCREEN,
-            event.flags
-        )
-        try {
-            super.dispatchTouchEvent(touchEvent)
-        } finally {
-            touchEvent.recycle()
-        }
     }
 
     // 返回键完全自管（修复真机播放页返回失效，同时杜绝重复分发）：
