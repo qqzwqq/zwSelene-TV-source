@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activityScope = CoroutineScope(Dispatchers.Main)
+    private var mousePrimaryPressed = false
     private var mouseSecondaryPressed = false
 
     @SuppressLint("GestureBackNavigation", "RestrictedApi")
@@ -93,11 +94,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * 保留 Android/Compose 原生鼠标分发。
-     *
-     * 之前将鼠标左键重新构造成触摸事件，但在实际 TV/WSA 环境中没有解决点击问题。
-     * Compose 原生 clickable/TV Surface 能处理鼠标、触摸、悬停及键盘交互，因此左键、
-     * 移动、滚轮等事件直接交给系统分发；仅保留鼠标右键作为返回键的兼容处理。
+     * 兼容不同 Android TV/模拟器对鼠标按键的两种上报方式：
+     * 有的设备发送 ACTION_DOWN/UP，有的设备还会发送 ACTION_BUTTON_PRESS/RELEASE。
+     * 将鼠标左键统一转换为触摸事件交给 Compose，避免 TV Surface 收不到点击；
+     * 鼠标移动/悬停/滚轮仍走原生分发，右键继续作为返回键。
      */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
+        val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -115,20 +116,52 @@ class MainActivity : ComponentActivity() {
                     }
                     return true
                 }
+                if (!mousePrimaryPressed) {
+                    mousePrimaryPressed = true
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
+                    return true
+                }
             }
 
             MotionEvent.ACTION_BUTTON_PRESS -> {
-                if (secondary && !mouseSecondaryPressed) {
-                    mouseSecondaryPressed = true
-                    onBackPressedDispatcher.onBackPressed()
+                when (event.actionButton) {
+                    MotionEvent.BUTTON_SECONDARY -> {
+                        if (!mouseSecondaryPressed) {
+                            mouseSecondaryPressed = true
+                            onBackPressedDispatcher.onBackPressed()
+                        }
+                        return true
+                    }
+                    MotionEvent.BUTTON_PRIMARY -> {
+                        if (!mousePrimaryPressed) {
+                            mousePrimaryPressed = true
+                            dispatchMouseAsTouch(event, MotionEvent.ACTION_DOWN)
+                        }
+                        return true
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (mousePrimaryPressed) {
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_MOVE)
                     return true
                 }
             }
 
             MotionEvent.ACTION_BUTTON_RELEASE -> {
-                if (mouseSecondaryPressed && !secondary) {
-                    mouseSecondaryPressed = false
-                    return true
+                when (event.actionButton) {
+                    MotionEvent.BUTTON_SECONDARY -> {
+                        mouseSecondaryPressed = false
+                        return true
+                    }
+                    MotionEvent.BUTTON_PRIMARY -> {
+                        if (mousePrimaryPressed) {
+                            mousePrimaryPressed = false
+                            dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
+                        }
+                        return true
+                    }
                 }
             }
 
@@ -137,15 +170,57 @@ class MainActivity : ComponentActivity() {
                     mouseSecondaryPressed = false
                     return true
                 }
+                if (mousePrimaryPressed) {
+                    mousePrimaryPressed = false
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_UP)
+                    return true
+                }
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                if (mousePrimaryPressed) {
+                    mousePrimaryPressed = false
+                    dispatchMouseAsTouch(event, MotionEvent.ACTION_CANCEL)
+                }
                 mouseSecondaryPressed = false
             }
         }
 
-        // 鼠标左键、移动、悬停和滚轮全部由 Android 原生分发给 Compose。
+        // 未按键的悬停、滚轮和其它鼠标事件保持系统原生行为。
         return super.dispatchTouchEvent(event)
+    }
+
+    private fun dispatchMouseAsTouch(event: MotionEvent, action: Int) {
+        if (event.pointerCount <= 0) return
+
+        val properties = MotionEvent.PointerProperties().also {
+            event.getPointerProperties(0, it)
+            it.toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+        val coordinates = MotionEvent.PointerCoords().also {
+            event.getPointerCoords(0, it)
+        }
+        val touchEvent = MotionEvent.obtain(
+            event.downTime,
+            event.eventTime,
+            action,
+            1,
+            arrayOf(properties),
+            arrayOf(coordinates),
+            event.metaState,
+            0,
+            event.xPrecision,
+            event.yPrecision,
+            event.deviceId,
+            event.edgeFlags,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            event.flags
+        )
+        try {
+            super.dispatchTouchEvent(touchEvent)
+        } finally {
+            touchEvent.recycle()
+        }
     }
 
     // 返回键完全自管（修复真机播放页返回失效，同时杜绝重复分发）：
